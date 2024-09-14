@@ -1,9 +1,18 @@
+#define USE_OLED // Comment this line to use LCD instead of OLED
+
+#ifdef USE_OLED
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#else
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include "BigNumbers_I2C.h"
+#endif
+
 #include <avr/wdt.h>
 #include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
+#include <PID_v1.h>
 
 // Pin Definitions
 #define TEMP_SENSOR_PIN A0
@@ -27,6 +36,7 @@ const int LCD_INTERVAL = 80;
 const int MIN_KNOB = 100;
 const int MAX_KNOB = 500;
 const unsigned long AUTO_SHUTOFF_TIME = 10 * 60000; // 10 minutes in milliseconds
+const unsigned long RAMP_DURATION = 20000; // 20 seconds for ramping
 
 // LED Colors
 const uint32_t COLOR_OFF = 0x000000;      // Black (OFF)
@@ -34,10 +44,19 @@ const uint32_t COLOR_HEATING = 0xFF0000;  // Red (Heating)
 const uint32_t COLOR_READY = 0x00FF00;    // Green (Ready)
 const uint32_t COLOR_COOLING = 0x0000FF;  // Blue (Cooling)
 const uint32_t COLOR_WARNING = 0xFFFF00;  // Yellow (Warning)
+const uint32_t COLOR_RAMPING = 0xFF00FF;  // Purple (Ramping)
 
 // Global Variables
+#ifdef USE_OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+#else
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 BigNumbers_I2C bigNum(&lcd);
+#endif
+
 Adafruit_NeoPixel pixel(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 
 volatile int knob = 100;
@@ -53,14 +72,30 @@ float store = 0.0;
 bool ledOffState = true;
 int lastButtonState = HIGH;
 
+// PID Variables
+double Setpoint, Input, Output;
+double Kp = 2, Ki = 5, Kd = 1;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+// Ramping Variables
+bool isRamping = false;
+unsigned long rampStartTime = 0;
+int originalSetpoint = 0;
+
 void setup() {
   initializeWatchdog();
   initializePins();
-  initializeLCD();
+  initializeDisplay();
   initializeWS2812();
   loadSavedTemperature();
   attachInterrupt(digitalPinToInterrupt(ENCODER_CLK_PIN), encoderISR, FALLING);
   lastActivityTime = millis();
+
+  // Initialize PID
+  Input = currentTemp;
+  Setpoint = knob;
+  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(0, MAX_PWM);
 }
 
 void loop() {
@@ -69,9 +104,11 @@ void loop() {
   readTemperature();
   updateTemperatureAverage();
   handleButtonPress();
+  updatePID();
   controlIronAndLED();
-  updateLCD();
+  updateDisplay();
   checkAutoShutoff();
+  handleRamping();
 }
 
 void initializeWatchdog() {
@@ -90,13 +127,25 @@ void initializePins() {
   digitalWrite(LED_OFF_PIN, HIGH);
 }
 
-void initializeLCD() {
+void initializeDisplay() {
+#ifdef USE_OLED
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    for(;;); // Don't proceed, loop forever
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+  display.println("Initializing...");
+  display.display();
+#else
   lcd.init();
   lcd.backlight();
   lcd.clear();
   bigNum.begin();
   lcd.setCursor(1, 0);
   lcd.print("SET");
+#endif
 }
 
 void initializeWS2812() {
@@ -144,31 +193,24 @@ void updateTemperatureAverage() {
   }
 }
 
-void handleButtonPress() {
-  int buttonState = digitalRead(BUTTON_PIN);
-  if (buttonState != lastButtonState && buttonState == LOW) {
-    ledOffState = !ledOffState;
-    digitalWrite(LED_OFF_PIN, ledOffState);
-    if (!ledOffState) {
-      beep();
-    }
-    lastActivityTime = millis(); // Update activity time
-  }
-  lastButtonState = buttonState;
+void updatePID() {
+  Input = currentTemp;
+  Setpoint = isRamping ? calculateRampSetpoint() : knob;
+  myPID.Compute();
+  pwm = Output;
 }
 
 void controlIronAndLED() {
   if (ledOffState) {
     pwm = 0;
     setLEDColor(COLOR_OFF);
-  } else if (currentTemp < knob - 10) {
-    pwm = MAX_PWM;
+  } else if (isRamping) {
+    setLEDColor(COLOR_RAMPING);
+  } else if (currentTemp < Setpoint - 10) {
     setLEDColor(COLOR_HEATING);
-  } else if (currentTemp >= knob - 10 && currentTemp <= knob + 10) {
-    pwm = (knob - currentTemp) * (MAX_PWM / 10);
+  } else if (currentTemp >= Setpoint - 10 && currentTemp <= Setpoint + 10) {
     setLEDColor(COLOR_READY);
-  } else if (currentTemp > knob + 10) {
-    pwm = 0;
+  } else if (currentTemp > Setpoint + 10) {
     setLEDColor(COLOR_COOLING);
   }
 
@@ -185,26 +227,110 @@ void setLEDColor(uint32_t color) {
   pixel.show();
 }
 
-void updateLCD() {
+void updateDisplay() {
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= LCD_INTERVAL) {
     previousMillis = currentMillis;
 
-    lcd.setCursor(1, 0);
-    lcd.print(ledOffState ? "OFF  " : "SET  ");
-
-    lcd.setCursor(0, 1);
-    if (ledOffState) {
-      lcd.print("---");
+#ifdef USE_OLED
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setCursor(0,0);
+    if (isRamping) {
+      display.print("RAMP ");
+      // Calculate and display countdown
+      int remainingTime = (RAMP_DURATION - (currentMillis - rampStartTime)) / 1000;
+      if (remainingTime < 0) remainingTime = 0;
+      display.setCursor(74, 0);
+      display.print(remainingTime);
+      display.print("s");
     } else {
-      lcd.print(knob);
+      display.print(ledOffState ? "OFF  " : "SET  ");
+      display.setCursor(74, 0);
+      display.print(ledOffState ? "---" : String(knob));
+      display.setTextSize(1);
+      display.print((char)247);
+      display.print("C");
     }
-    lcd.print((char)223);
-    lcd.print("C ");
+
+    display.setTextSize(4);
+    display.setCursor(0, 32);
+    display.print(currentTempAvg);
+    display.setTextSize(3);
+    display.print((char)247);
+    display.print("C");
+
+    display.display();
+#else
+    lcd.setCursor(1, 0);
+    if (isRamping) {
+      lcd.print("RAMP ");
+      // Calculate and display countdown
+      int remainingTime = (RAMP_DURATION - (currentMillis - rampStartTime)) / 1000;
+      if (remainingTime < 0) remainingTime = 0;
+      lcd.setCursor(6, 0);
+      lcd.print(remainingTime);
+      lcd.print("s    ");
+    } else {
+      lcd.print(ledOffState ? "OFF  " : "SET  ");
+      lcd.setCursor(6, 0);
+      if (ledOffState) {
+        lcd.print("---");
+      } else {
+        lcd.print(knob);
+      }
+      lcd.print((char)223);
+      lcd.print("C ");
+    }
 
     bigNum.displayLargeInt(currentTempAvg, 6, 0, 3, false);
     lcd.setCursor(15, 0);
     lcd.print("o");
+#endif
+  }
+}
+
+void handleButtonPress() {
+  int buttonState = digitalRead(BUTTON_PIN);
+  if (buttonState != lastButtonState && buttonState == LOW) {
+    if (ledOffState) {
+      ledOffState = false;
+      digitalWrite(LED_OFF_PIN, LOW);
+      beep();
+    } else if (!isRamping) {
+      startRamping();
+    } else {
+      ledOffState = true;
+      isRamping = false;
+      digitalWrite(LED_OFF_PIN, HIGH);
+    }
+    lastActivityTime = millis(); // Update activity time
+  }
+  lastButtonState = buttonState;
+}
+
+void startRamping() {
+  isRamping = true;
+  rampStartTime = millis();
+  originalSetpoint = knob;
+}
+
+int calculateRampSetpoint() {
+  unsigned long elapsedTime = millis() - rampStartTime;
+  if (elapsedTime > RAMP_DURATION) {
+    isRamping = false;
+    return originalSetpoint;
+  }
+
+  int rampTarget = MAX_TEMP;
+  float progress = (float)elapsedTime / RAMP_DURATION;
+  return originalSetpoint + (rampTarget - originalSetpoint) * progress;
+}
+
+void handleRamping() {
+  if (isRamping && millis() - rampStartTime > RAMP_DURATION) {
+    isRamping = false;
+    beep(); // Alert user that ramping is complete
   }
 }
 
@@ -223,11 +349,20 @@ void checkAutoShutoff() {
     digitalWrite(LED_OFF_PIN, HIGH);
     setLEDColor(COLOR_OFF);
     beep(); // Alert user of auto-shutoff
+#ifdef USE_OLED
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setCursor(0,0);
+    display.println("Auto Shut-off");
+    display.println("Activated");
+    display.display();
+#else
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Auto Shut-off");
     lcd.setCursor(0, 1);
     lcd.print("Activated");
+#endif
     delay(2000); // Show message for 2 seconds
     lastActivityTime = millis(); // Reset activity timer
   }

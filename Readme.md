@@ -16,7 +16,8 @@
 13. [Maintenance](#maintenance)
 14. [Simulation](#simulation)
 15. [Adaptive PID Control](#adaptive-pid-control)
-16. [Contributing](#contributing)
+16. [Flowchart](#flowchart)
+17. [Contributing](#contributing)
 
 ## Introduction
 
@@ -171,6 +172,10 @@ The controller can adapt PID values based on system behavior:
 - **Loop Monitoring**: The system adapts PID values every 225 loops.
 - **Error Handling**: Sum of errors and counts are logged for adaptation.
 - **Overshoot Protection**: Limits the temperature overshoot to 10°C.
+
+## Flowchart
+
+![flowchart](etc/flowchart.png)
 
 ## Contributing
 

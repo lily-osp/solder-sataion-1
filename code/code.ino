@@ -36,7 +36,27 @@ const int LCD_INTERVAL = 80;
 const int MIN_KNOB = 100;
 const int MAX_KNOB = 500;
 const unsigned long AUTO_SHUTOFF_TIME = 10 * 60000; // 10 minutes in milliseconds
+
+// Overshoot variable
+const float MAX_OVERSHOOT = 10.0; // Maximum allowed overshoot in °C
+float lastSetpoint = 0;
+
+// Adaptive PID variable
+const unsigned long PID_ADAPT_INTERVAL = 60000; // 1 minute
+unsigned long lastPidAdaptTime = 0;
+float sumError = 0;
+int errorCount = 0;
+
+// PID Variables
+double Setpoint, Input, Output;
+double Kp = 2, Ki = 5, Kd = 1;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+// Ramping Variables
 const unsigned long RAMP_DURATION = 20000; // 20 seconds for ramping
+bool isRamping = false;
+unsigned long rampStartTime = 0;
+int originalSetpoint = 0;
 
 // LED Colors
 const uint32_t COLOR_OFF = 0x000000;      // Black (OFF)
@@ -59,6 +79,7 @@ BigNumbers_I2C bigNum(&lcd);
 
 Adafruit_NeoPixel pixel(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 
+// on run variable
 volatile int knob = 100;
 int pwm = 0;
 int tempRaw = 0;
@@ -71,16 +92,6 @@ float store = 0.0;
 
 bool ledOffState = true;
 int lastButtonState = HIGH;
-
-// PID Variables
-double Setpoint, Input, Output;
-double Kp = 2, Ki = 5, Kd = 1;
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
-
-// Ramping Variables
-bool isRamping = false;
-unsigned long rampStartTime = 0;
-int originalSetpoint = 0;
 
 void setup() {
   initializeWatchdog();
@@ -99,7 +110,7 @@ void setup() {
 }
 
 void loop() {
-  wdt_reset(); // Reset watchdog timer
+  wdt_reset();
 
   readTemperature();
   updateTemperatureAverage();
@@ -109,6 +120,8 @@ void loop() {
   updateDisplay();
   checkAutoShutoff();
   handleRamping();
+  handleTemperatureOvershootProtection();
+  adaptPIDParameters();
 }
 
 void initializeWatchdog() {
@@ -123,7 +136,6 @@ void initializePins() {
   pinMode(LED_OFF_PIN, OUTPUT);
   pinMode(BUZZ_PIN, OUTPUT);
   pinMode(ENCODER_DT_PIN, INPUT);
-
   digitalWrite(LED_OFF_PIN, HIGH);
 }
 
@@ -143,7 +155,7 @@ void initializeDisplay() {
   lcd.backlight();
   lcd.clear();
   bigNum.begin();
-  lcd.setCursor(1, 0);
+  lcd.setCursor(0, 0);
   lcd.print("SET");
 #endif
 }
@@ -193,9 +205,61 @@ void updateTemperatureAverage() {
   }
 }
 
+// Temperature Overshoot Protection
+void handleTemperatureOvershootProtection() {
+  if (Setpoint != lastSetpoint) {
+    // Setpoint has changed
+    if (Setpoint > lastSetpoint) {
+      // We're heating up, apply overshoot protection
+      float maxAllowedTemp = Setpoint + MAX_OVERSHOOT;
+      if (currentTemp > maxAllowedTemp) {
+        pwm = 0; // Cut power to prevent further overshoot
+      }
+    }
+    lastSetpoint = Setpoint;
+  }
+}
+
+// Adaptive PID
+void adaptPIDParameters() {
+  unsigned long currentTime = millis();
+  if (currentTime - lastPidAdaptTime > PID_ADAPT_INTERVAL) {
+    float avgError = sumError / errorCount;
+
+    // Adjust PID parameters based on average error
+    if (abs(avgError) > 5) {
+      // If average error is large, increase proportional and integral terms
+      Kp *= 1.1;
+      Ki *= 1.1;
+    } else if (abs(avgError) < 2) {
+      // If average error is small, slightly decrease proportional and integral terms
+      Kp *= 0.95;
+      Ki *= 0.95;
+    }
+
+    // Limit Kp and Ki to reasonable ranges
+    Kp = constrain(Kp, 0.5, 10);
+    Ki = constrain(Ki, 0.1, 20);
+
+    // Update PID controller with new parameters
+    myPID.SetTunings(Kp, Ki, Kd);
+
+    // Reset for next adaptation cycle
+    sumError = 0;
+    errorCount = 0;
+    lastPidAdaptTime = currentTime;
+  } else {
+    // Accumulate error for averaging
+    sumError += (Setpoint - Input);
+    errorCount++;
+  }
+}
+
 void updatePID() {
   Input = currentTemp;
-  Setpoint = isRamping ? calculateRampSetpoint() : knob;
+  if (!isCoolingDown) {
+    Setpoint = isRamping ? calculateRampSetpoint() : knob;
+  }
   myPID.Compute();
   pwm = Output;
 }
@@ -238,7 +302,6 @@ void updateDisplay() {
     display.setCursor(0,0);
     if (isRamping) {
       display.print("RAMP ");
-      // Calculate and display countdown
       int remainingTime = (RAMP_DURATION - (currentMillis - rampStartTime)) / 1000;
       if (remainingTime < 0) remainingTime = 0;
       display.setCursor(74, 0);
@@ -262,23 +325,18 @@ void updateDisplay() {
 
     display.display();
 #else
-    lcd.setCursor(1, 0);
+    lcd.setCursor(0, 0);
     if (isRamping) {
       lcd.print("RAMP ");
-      // Calculate and display countdown
       int remainingTime = (RAMP_DURATION - (currentMillis - rampStartTime)) / 1000;
       if (remainingTime < 0) remainingTime = 0;
-      lcd.setCursor(6, 0);
+      lcd.setCursor(0, 1);
       lcd.print(remainingTime);
-      lcd.print("s    ");
+      lcd.print("s   ");
     } else {
       lcd.print(ledOffState ? "OFF  " : "SET  ");
-      lcd.setCursor(6, 0);
-      if (ledOffState) {
-        lcd.print("---");
-      } else {
-        lcd.print(knob);
-      }
+      lcd.setCursor(0, 1);
+      lcd.print(ledOffState ? "---" : String(knob));
       lcd.print((char)223);
       lcd.print("C ");
     }
@@ -311,6 +369,7 @@ void handleButtonPress() {
 
 void startRamping() {
   isRamping = true;
+  isCoolingDown = false;
   rampStartTime = millis();
   originalSetpoint = knob;
 }

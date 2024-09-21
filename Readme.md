@@ -14,7 +14,8 @@
 11. [Persistent Settings](#persistent-settings)
 12. [Troubleshooting](#troubleshooting)
 13. [Maintenance](#maintenance)
-14. [Contributing](#contributing)
+14. [Simulation](#simulation)
+15. [Contributing](#contributing)
 
 ## Introduction
 
@@ -164,6 +165,10 @@ The controller uses the Arduino's internal EEPROM to store the last used tempera
 - Clean the temperature sensor periodically for accurate temperature readings.
 - Update the firmware if new versions become available.
 - Calibrate the temperature sensor annually or if temperature inaccuracies are noticed.
+
+## Simulation
+
+- [Wokwi](https://wokwi.com/projects/408754608532252673)
 
 ## Contributing
 

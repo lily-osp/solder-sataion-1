@@ -15,161 +15,163 @@
 12. [Troubleshooting](#troubleshooting)
 13. [Maintenance](#maintenance)
 14. [Simulation](#simulation)
-15. [Contributing](#contributing)
+15. [Adaptive PID Control](#adaptive-pid-control)
+16. [Contributing](#contributing)
 
 ## Introduction
 
-The Soldering Iron Controller is a robust, Arduino-based system designed to precisely control the temperature of a soldering iron. It features a digital interface, advanced temperature control, and safety mechanisms, making it suitable for both hobbyist and professional use.
+The **Soldering Iron Controller** is an Arduino-based system designed to precisely manage soldering iron temperatures. It supports PID-based control, a user-friendly rotary encoder, and a vibrant LED status indicator, making it an ideal tool for hobbyists and professionals.
 
 ## Features
 
-- Precise temperature control (range: 100°C to 500°C)
-- PID control system for stable temperature management
-- Temperature ramping feature for controlled heating
-- Digital display (OLED or LCD) for clear temperature readout
-- WS2812 RGB LED for visual status indication
-- Rotary encoder for easy temperature adjustment
-- Automatic shut-off for safety
-- Watchdog timer for system stability
-- Temperature sensor with analog input for accurate readings
-- PWM control for efficient power handling
-- Persistent temperature setting stored in EEPROM
+- Precise temperature control (100°C to 500°C range)
+- PID-based temperature regulation with adaptive tuning
+- Temperature ramping for rapid heating
+- OLED or I2C LCD display for clear temperature readouts
+- WS2812 RGB LED for status indication
+- Rotary encoder with push button for intuitive control
+- Automatic shut-off after 10 minutes of inactivity
+- Watchdog timer for system reliability
+- Temperature sensor for accurate readings
+- PWM control for soldering iron heating element
+- Persistent settings saved in EEPROM
 
 ## Hardware Requirements
 
-- Arduino board (e.g., Arduino Uno, Nano)
+- Arduino (e.g., Arduino Uno, Nano)
 - OLED Display (SSD1306) or 16x2 I2C LCD Display
 - WS2812 RGB LED
 - Rotary Encoder with push button
-- Temperature sensor (compatible with analog input)
-- MOSFET or other switching device for iron control
-- Soldering Iron (voltage depends on your setup)
-- Appropriate power supply
-- Buzzer for audible alerts
-- Various resistors and capacitors (see wiring guide)
+- Analog temperature sensor
+- MOSFET (for iron control)
+- Soldering iron
+- Power supply
+- Buzzer
+- Resistors, capacitors (refer to wiring guide)
 
 ## Software Dependencies
 
-Ensure you have the following libraries installed in your Arduino IDE:
+Ensure the following libraries are installed:
 
-- Wire.h (built-in)
-- Adafruit_GFX.h (for OLED display)
-- Adafruit_SSD1306.h (for OLED display)
-- LiquidCrystal_I2C.h (for LCD display)
-- BigNumbers_I2C.h (for LCD display)
-- Adafruit_NeoPixel.h
-- EEPROM.h (built-in)
-- PID_v1.h
+- **Wire.h** (built-in)
+- **Adafruit_GFX.h** (for OLED)
+- **Adafruit_SSD1306.h** (for OLED)
+- **LiquidCrystal_I2C.h** (for LCD)
+- **BigNumbers_I2C.h** (for large font on LCD)
+- **Adafruit_NeoPixel.h** (for WS2812 LED)
+- **EEPROM.h** (built-in)
+- **PID_v1.h** (for PID control)
 
 ## Installation
 
-1. Clone this repository or download the source code.
+1. Clone or download this repository.
 2. Open the `.ino` file in the Arduino IDE.
-3. Install the required libraries through the Arduino Library Manager.
-4. Configure the pin assignments in the code to match your wiring setup.
-5. Choose between OLED and LCD display by commenting/uncommenting the `USE_OLED` define.
+3. Install required libraries via Library Manager.
+4. Adjust pin assignments in the code to match your wiring.
+5. Choose between OLED and LCD display by toggling the `USE_OLED` define in the code.
 6. Upload the code to your Arduino board.
 
 ## Wiring Guide
 
-Follow this wiring guide carefully:
+Follow the wiring instructions for correct setup:
 
-1. **Temperature Sensing Circuit**:
-   - Connect the temperature sensor to Arduino's A0 pin.
+1. **Temperature Sensing**:
+   - Connect the sensor to Arduino pin A0.
 
-2. **Soldering Iron Control**:
-   - Connect the control pin (MOSFET gate or equivalent) to Arduino's D10 pin.
+2. **Iron Control**:
+   - Connect the MOSFET gate to pin D10.
 
 3. **Display**:
-   - For OLED: Connect SDA and SCL pins to Arduino's A4 and A5 pins respectively.
-   - For LCD: Connect SDA and SCL pins to Arduino's A4 and A5 pins respectively.
+   - OLED: Connect SDA to A4, SCL to A5.
+   - LCD: Same connections (SDA to A4, SCL to A5).
 
 4. **WS2812 LED**:
-   - Connect the data pin of the WS2812 to Arduino's D12 pin.
+   - Data pin connects to D12.
 
 5. **Rotary Encoder**:
-   - Connect CLK and DT pins to Arduino's D3 and D4 pins respectively.
-   - Connect the switch pin to Arduino's D5 pin.
+   - CLK to D3, DT to D4, switch to D5.
 
 6. **Buzzer**:
-   - Connect to Arduino's D2 pin.
+   - Connect to D2.
 
 7. **LED Off Indicator**:
-   - Connect to Arduino's D8 pin.
+   - Connect to D8.
 
-Ensure all ground connections are common and connect VCC appropriately.
+Ensure all components share a common ground and proper power connections.
 
 ## Usage
 
-1. Power on the controller.
-2. The last used temperature setting will be loaded automatically.
-3. Use the rotary encoder to adjust the desired temperature.
-4. The WS2812 LED will indicate the current status:
-   - Red: Heating
-   - Green: Ready (at set temperature)
-   - Blue: Cooling
-   - Yellow: Warning (near maximum temperature)
-   - Purple: Ramping
-   - Off: Iron is off or auto-shutoff activated
-5. The display will show the current and set temperatures.
-6. Press the rotary encoder button to toggle the iron on/off or start ramping.
-7. During ramping, the display will show a countdown timer.
+1. Power on the controller; the last used temperature will be loaded.
+2. Adjust the temperature with the rotary encoder.
+3. Status LEDs indicate:
+   - **Red**: Heating
+   - **Green**: Ready
+   - **Blue**: Cooling
+   - **Yellow**: Warning (near max temperature)
+   - **Purple**: Ramping
+   - **Off**: Iron off or auto-shutoff
+4. Press the encoder button to toggle the iron on/off or start ramping mode.
 
 ## Temperature Control System
 
 ### PID Control
-The system uses a PID (Proportional-Integral-Derivative) controller for precise temperature management. The PID parameters are:
-- Kp (Proportional): 2
-- Ki (Integral): 5
-- Kd (Derivative): 1
+The controller uses a PID algorithm to maintain stable temperatures:
+- **Kp**: 2
+- **Ki**: 5
+- **Kd**: 1
 
-These parameters can be adjusted in the code to fine-tune the temperature control for your specific setup.
+Adjust these values in the code for custom tuning.
 
 ### Temperature Ramping
-The controller includes a temperature ramping feature:
-- Activated by pressing the button when the iron is on
-- Ramps the temperature to the maximum (500°C) over 30 seconds
-- Displays a countdown during ramping
-- Automatically returns to the original setpoint after ramping
+- Activated by pressing the encoder button.
+- Ramps to the max temperature (500°C) over 20 seconds, displaying a countdown.
+- Returns to the previous setpoint after ramping.
 
 ## Display Options
 
-The controller supports two display options:
-1. OLED Display (SSD1306)
-2. 16x2 LCD Display with I2C interface
+Choose between two display types:
+1. **OLED Display (SSD1306)**
+2. **16x2 I2C LCD**
 
-To switch between display types, comment or uncomment the `USE_OLED` define at the top of the code.
+Switch displays by commenting/uncommenting the `USE_OLED` define in the code.
 
 ## Safety Features
 
-1. **Automatic Shut-off**: The iron will automatically turn off after 10 minutes of inactivity.
-2. **Watchdog Timer**: Resets the system if it becomes unresponsive.
-3. **Temperature Warnings**: Visual indication when approaching maximum safe temperature.
-4. **Error Detection**: The system monitors for sensor failures and other errors.
+- **Automatic Shut-off**: After 10 minutes of inactivity, the iron is turned off.
+- **Watchdog Timer**: Resets the system if unresponsive.
+- **Overheat Protection**: Stops heating if the temperature exceeds a safe threshold.
+- **Error Detection**: Monitors sensor and system issues.
 
 ## Persistent Settings
 
-The controller uses the Arduino's internal EEPROM to store the last used temperature setting. This feature ensures that your preferred temperature is remembered even after power cycles.
+The system saves the last temperature setting in EEPROM, allowing it to persist across power cycles.
 
 ## Troubleshooting
 
-- If the temperature reading is inaccurate, check the temperature sensor connections and calibration.
-- If the iron isn't heating, verify the MOSFET or switching device connections and the power supply.
-- For LED issues, ensure the WS2812 is correctly wired and the library is properly installed.
-- If the system is unstable, check for loose connections and verify the code uploaded successfully.
-- If the PID control is not performing well, try adjusting the Kp, Ki, and Kd values in the code.
+- **Inaccurate Temperature Readings**: Check sensor wiring.
+- **Iron Not Heating**: Check MOSFET and power supply.
+- **LED Not Working**: Ensure WS2812 wiring and library installation.
+- **System Freezing**: Verify connections and PID stability.
+- **PID Tuning Issues**: Adjust Kp, Ki, Kd as needed.
 
 ## Maintenance
 
-- Regularly check all connections for signs of wear or damage.
-- Clean the temperature sensor periodically for accurate temperature readings.
-- Update the firmware if new versions become available.
-- Calibrate the temperature sensor annually or if temperature inaccuracies are noticed.
+- Inspect connections regularly.
+- Clean the temperature sensor periodically.
+- Update firmware as new versions become available.
+- Recalibrate the sensor if readings become inaccurate.
 
 ## Simulation
 
-- [Wokwi](https://wokwi.com/projects/408754608532252673)
+Test the setup in [Wokwi](https://wokwi.com/projects/408754608532252673).
+
+## Adaptive PID Control
+
+The controller can adapt PID values based on system behavior:
+- **Loop Monitoring**: The system adapts PID values every 225 loops.
+- **Error Handling**: Sum of errors and counts are logged for adaptation.
+- **Overshoot Protection**: Limits the temperature overshoot to 10°C.
 
 ## Contributing
 
-Contributions to this project are welcome. Please fork the repository and submit a pull request with your proposed changes.
+Contributions are welcome! Fork this repository, make your changes, and submit a pull request.

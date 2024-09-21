@@ -42,8 +42,8 @@ const float MAX_OVERSHOOT = 10.0; // Maximum allowed overshoot in °C
 float lastSetpoint = 0;
 
 // Adaptive PID variable
-const unsigned long PID_ADAPT_INTERVAL = 60000; // 1 minute
-unsigned long lastPidAdaptTime = 0;
+int adaptationLoopCount = 0;  // Loop counter for PID adaptation
+const int ADAPT_LOOP_THRESHOLD = 225;  // Number of loops after which PID adapts
 float sumError = 0;
 int errorCount = 0;
 
@@ -222,8 +222,11 @@ void handleTemperatureOvershootProtection() {
 
 // Adaptive PID
 void adaptPIDParameters() {
-  unsigned long currentTime = millis();
-  if (currentTime - lastPidAdaptTime > PID_ADAPT_INTERVAL) {
+  // Increment the loop counter
+  adaptationLoopCount++;
+
+  // Adapt PID parameters after a certain number of loops
+  if (adaptationLoopCount >= ADAPT_LOOP_THRESHOLD) {
     float avgError = sumError / errorCount;
 
     // Adjust PID parameters based on average error
@@ -247,7 +250,7 @@ void adaptPIDParameters() {
     // Reset for next adaptation cycle
     sumError = 0;
     errorCount = 0;
-    lastPidAdaptTime = currentTime;
+    adaptationLoopCount = 0;  // Reset loop counter
   } else {
     // Accumulate error for averaging
     sumError += (Setpoint - Input);
@@ -257,9 +260,7 @@ void adaptPIDParameters() {
 
 void updatePID() {
   Input = currentTemp;
-  if (!isCoolingDown) {
-    Setpoint = isRamping ? calculateRampSetpoint() : knob;
-  }
+  Setpoint = isRamping ? calculateRampSetpoint() : knob;
   myPID.Compute();
   pwm = Output;
 }
@@ -369,7 +370,6 @@ void handleButtonPress() {
 
 void startRamping() {
   isRamping = true;
-  isCoolingDown = false;
   rampStartTime = millis();
   originalSetpoint = knob;
 }

@@ -1,5 +1,6 @@
 # Soldering Iron Controller
 
+![Blotcat meticulously soldering a microchip using a high-tech, precise soldering station](assets/blotcat-hero.jpg)
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Features](#features)
@@ -104,6 +105,7 @@ Follow the wiring instructions for correct setup:
 
 ## Usage
 
+![Blotcat twisting a large rotary knob to navigate a digital menu screen](assets/blotcat-interface.jpg)
 1. Power on the controller; the last used temperature will be loaded.
 2. Adjust the temperature with the rotary encoder when in active mode.
 3. Status LEDs indicate:
@@ -147,6 +149,7 @@ Switch displays by commenting/uncommenting the `USE_OLED` define in the code.
 
 ## Safety Features
 
+![Blotcat throwing a massive emergency stop switch to prevent thermal runaway](assets/blotcat-safety.jpg)
 - **Sensor Disconnection & Short-Circuit Detection**: Continuous analog read checking. Raw values `<= 2` or `>= 1021` shut down the heater, activate the buzzer alarm, flash the status LED, and lock the system in an error state.
 - **Thermal Runaway Protection**: Activates if the heater applies significant power (`PWM > 150`) but the temperature fails to rise by at least 3.0°C over a 15-second window. Prevents heater damage if the sensor detaches.
 - **Overheat Protection**: Shuts down the system if the temperature exceeds a safe threshold of `MAX_TEMP + 10` (510°C).
